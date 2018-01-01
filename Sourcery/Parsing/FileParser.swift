@@ -15,7 +15,48 @@ protocol Parsable: class {
 extension Parsable {
     /// Source structure used by the parser
     var __underlyingSource: [String: SourceKitRepresentable] {
-        return (__parserData as? [String: SourceKitRepresentable]) ?? [:]
+        guard let dictData = __parserData as? NSDictionary else {
+            return (__parserData as? [String: SourceKitRepresentable]) ?? [:]
+        }
+        func isBoolNumber(_ num: NSNumber) -> Bool {
+            // from https://stackoverflow.com/questions/30215680/is-there-a-correct-way-to-determine-that-an-nsnumber-is-derived-from-a-bool-usin
+            let boolID = CFBooleanGetTypeID() // the type ID of CFBoolean
+            let numID = CFGetTypeID(num) // the type ID of num
+            return numID == boolID
+        }
+        func isInt64Number(_ num: NSNumber) -> Bool {
+            let numberType = CFNumberGetType(num)
+            return numberType == CFNumberType.sInt64Type
+        }
+        func nsToSourceKit(_ nsObject: Any) -> SourceKitRepresentable? {
+            switch nsObject {
+            case let dictionary as NSDictionary:
+                return dictionary.reduce([:]) { (underlyingSource, keyValuePair) -> [String: SourceKitRepresentable] in
+                    var underlyingSource = underlyingSource
+                    guard let key = keyValuePair.key as? String, let value = nsToSourceKit(keyValuePair.value) else {
+                        return underlyingSource
+                    }
+                    underlyingSource[key] = value
+                    return underlyingSource
+                }
+            case let array as NSArray:
+                return array.flatMap({ item -> SourceKitRepresentable? in
+                    return nsToSourceKit(item)
+                })
+            case let string as NSString:
+                return string as String
+            case let number as NSNumber where isBoolNumber(number):
+                return number.boolValue
+            case let number as NSNumber where isInt64Number(number):
+                return number.int64Value
+            default:
+                return nil
+            }
+        }
+        guard let underlyingSource = nsToSourceKit(dictData) as? [String: SourceKitRepresentable] else {
+            return [:]
+        }
+        return underlyingSource
     }
 
     /// sets underlying source
